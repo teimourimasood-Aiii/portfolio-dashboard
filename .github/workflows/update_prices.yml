@@ -17,9 +17,14 @@ jobs:
       - run: python update_prices.py
         env:
           BRSAPI_KEY: ${{ secrets.BRSAPI_KEY }}
-      - run: |
+      - name: Commit and push changes
+        run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Action"
           git add prices.json
-          git commit -m "Auto-update prices [skip ci]" || echo "No changes"
-          git push
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto-update prices [skip ci]"
+            git push
+          fi
