@@ -1,0 +1,25 @@
+name: Update Stock Prices
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install requests
+      - run: python update_prices.py
+        env:
+          BRSAPI_KEY: ${{ secrets.BRSAPI_KEY }}
+      - run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add prices.json
+          git commit -m "Auto-update prices [skip ci]" || echo "No changes"
+          git push
