@@ -7,12 +7,12 @@ import os
 from datetime import datetime
 
 st.set_page_config(page_title="سبد پویا", layout="centered")
-st.title("📊 سبد مادر (خودکار + دستی + سود/زیان)")
+st.title("📊 سبد مادر (خودکار + دستی + میانگین خرید)")
 
 DATA_FILE = "portfolio_data.json"
 PRICES_FILE = "prices.json"
 
-# ---------- دریافت خودکار قیمت‌ها (با خطاگیری بهتر) ----------
+# ---------- دریافت خودکار قیمت‌ها ----------
 def get_navasan_price(item):
     try:
         url = f"https://api.navasan.tech/latest/?api_key=free&item={item}"
@@ -47,7 +47,6 @@ def load_prices():
     if os.path.exists(PRICES_FILE):
         with open(PRICES_FILE, "r", encoding="utf-8") as f:
             saved = json.load(f)
-            # ترکیب قیمت‌های ذخیره‌شده با پیش‌فرض (برای مواردی که در فایل نیستند)
             for key, value in default_prices.items():
                 if key not in saved:
                     saved[key] = value
@@ -85,7 +84,7 @@ data = load_data()
 assets = data["assets"]
 prices = load_prices()
 
-# ---------- دریافت قیمت‌های خودکار (با نگهداری قیمت قبلی در صورت خطا) ----------
+# ---------- دریافت خودکار (با نگهداری قیمت قبلی در صورت خطا) ----------
 auto_dollar = get_navasan_price("usd")
 if auto_dollar is not None:
     prices["دلار"] = auto_dollar
@@ -102,59 +101,89 @@ if auto_btc is not None:
 with st.sidebar:
     st.header("⚙️ مدیریت سبد")
     
-    # ---------- بخش ورود قیمت روزانه ----------
-    st.subheader("📝 ورود قیمت‌های روزانه")
-    st.caption("قیمت سهام را خودتان وارد کنید. قیمت طلا/دلار/بیت‌کوین خودکار است.")
+    # ---------- بخش ورود قیمت‌ها (دستی + خودکار) ----------
+    st.subheader("📝 قیمت‌های روزانه")
+    st.caption("قیمت‌ها را می‌توانید دستی وارد کنید (اگر خودکار نیامد).")
     
     new_prices = {}
+    
+    # لیست دارایی‌هایی که کاربر می‌تواند قیمتشان را وارد کند (همه به جز نقد)
     for asset in assets:
         name = asset["name"]
+        if name == "نقد":
+            new_prices[name] = 1
+            continue
+        
         current = prices.get(name, 0)
         
-        # نمایش وضعیت دریافت خودکار
-        if name == "دلار":
-            st.info(f"🟢 دلار: {prices.get('دلار', 0):,.0f} تومان (خودکار)")
-            new_prices[name] = prices.get('دلار', 0)
-        elif name == "طلا ۱۸":
-            st.info(f"🟢 طلا ۱۸: {prices.get('طلا ۱۸', 0):,.0f} تومان (خودکار)")
-            new_prices[name] = prices.get('طلا ۱۸', 0)
-        elif name == "بیت‌کوین":
-            st.info(f"🟢 بیت‌کوین: {prices.get('بیت‌کوین', 0):,.0f} تومان (خودکار)")
-            new_prices[name] = prices.get('بیت‌کوین', 0)
-        elif name == "نقد":
-            new_prices[name] = 1  # نقد همیشه ۱ است
-            st.info("🟣 نقد: ۱ تومان (ثابت)")
-        else:
-            new_price = st.number_input(
-                f"{name} (هر {asset['unit']})",
-                min_value=0,
-                value=current,
-                step=100,
-                key=f"price_{name}"
-            )
-            new_prices[name] = new_price
+        # نمایش قیمت خودکار اگر موجود باشد
+        if name in ["دلار", "طلا ۱۸", "بیت‌کوین"]:
+            auto_price = prices.get(name, 0)
+            st.info(f"🟢 {name}: {auto_price:,.0f} تومان (خودکار - در صورت نیاز ویرایش کنید)")
+        
+        # ورودی دستی (برای همه دارایی‌ها به جز نقد)
+        new_price = st.number_input(
+            f"{name} (هر {asset['unit']})",
+            min_value=0,
+            value=current,
+            step=100 if name != "بیت‌کوین" else 1000000,
+            key=f"price_{name}"
+        )
+        new_prices[name] = new_price
     
-    if st.button("💾 ذخیره قیمت‌های دستی"):
+    if st.button("💾 ذخیره قیمت‌ها"):
         save_prices(new_prices)
         st.success("✅ قیمت‌ها ذخیره شدند!")
         st.rerun()
     
     st.divider()
     
-    # ---------- ویرایش تعداد و قیمت خرید ----------
-    st.subheader("✏️ ویرایش دارایی")
+    # ---------- ویرایش دارایی (با محاسبه میانگین خرید) ----------
+    st.subheader("✏️ ویرایش دارایی (تعداد و قیمت خرید)")
     if len(assets) > 0:
         selected_name = st.selectbox("انتخاب دارایی", [a["name"] for a in assets])
         selected = next(a for a in assets if a["name"] == selected_name)
         
-        new_count = st.number_input("تعداد جدید", min_value=0.0, step=0.01, value=float(selected["count"]))
-        new_buy = st.number_input("قیمت میانگین خرید (تومان)", min_value=0, value=int(selected["buy_price"]))
+        st.caption(f"قیمت میانگین خرید فعلی: {selected['buy_price']:,.0f} تومان")
+        
+        new_count = st.number_input(
+            "تعداد جدید",
+            min_value=0.0,
+            step=0.01,
+            value=float(selected["count"])
+        )
+        
+        new_buy_price = st.number_input(
+            "قیمت خرید جدید (برای این تعداد)",
+            min_value=0,
+            value=0,
+            step=1000,
+            help="قیمتی که به‌ازای هر واحد برای این تعداد جدید پرداخت کرده‌اید"
+        )
+        
+        # محاسبه قیمت میانگین خرید وزنی
+        if new_buy_price > 0 and new_count > 0:
+            old_count = selected["count"]
+            old_buy = selected["buy_price"]
+            # اگر تعداد قبلی صفر است، میانگین همان قیمت جدید است
+            if old_count == 0:
+                avg_buy = new_buy_price
+            else:
+                avg_buy = (old_count * old_buy + new_count * new_buy_price) / (old_count + new_count)
+            st.info(f"💰 قیمت میانگین خرید جدید: {avg_buy:,.0f} تومان")
+        else:
+            avg_buy = selected["buy_price"]
         
         if st.button("💾 ذخیره تغییرات"):
             for a in assets:
                 if a["name"] == selected_name:
                     a["count"] = new_count
-                    a["buy_price"] = new_buy
+                    # اگر قیمت خرید جدید وارد شده، میانگین را به‌روز کن
+                    if new_buy_price > 0 and new_count > 0:
+                        a["buy_price"] = avg_buy
+                    # اگر تعداد صفر شد، قیمت خرید را صفر کن
+                    if new_count == 0:
+                        a["buy_price"] = 0
                     break
             save_data(data)
             st.success("✅ به‌روز شد!")
@@ -166,8 +195,8 @@ with st.sidebar:
     st.subheader("➕ اضافه کردن دارایی جدید")
     new_name = st.text_input("نام دارایی")
     new_count = st.number_input("تعداد", min_value=0.0, step=0.01, value=1.0)
-    new_unit = st.text_input("واحد")
-    new_buy = st.number_input("قیمت خرید (تومان)", min_value=0, value=0)
+    new_unit = st.text_input("واحد (مثلاً سهم، گرم)")
+    new_buy = st.number_input("قیمت خرید (برای هر واحد)", min_value=0, value=0, step=1000)
     
     if st.button("➕ اضافه کن", key="add_btn"):
         if new_name and new_count > 0:
@@ -180,6 +209,8 @@ with st.sidebar:
             save_data(data)
             st.success(f"✅ {new_name} اضافه شد!")
             st.rerun()
+        else:
+            st.error("❌ نام و تعداد را وارد کنید.")
     
     st.divider()
     
@@ -245,4 +276,4 @@ if len(df_chart) > 0:
 else:
     st.info("هیچ دارایی با ارزش مثبت وجود ندارد.")
 
-st.caption("💡 قیمت طلا، دلار و بیت‌کوین خودکار دریافت می‌شوند. قیمت سهام را روزانه در منوی کناری وارد کنید.")
+st.caption("💡 قیمت‌ها را می‌توانید دستی وارد کنید یا از خودکار استفاده کنید. برای ویرایش تعداد و قیمت خرید، از بخش ویرایش استفاده کنید.")
