@@ -12,7 +12,7 @@ st.title("📊 سبد مادر (خودکار + دستی + سود/زیان)")
 DATA_FILE = "portfolio_data.json"
 PRICES_FILE = "prices.json"
 
-# ---------- دریافت خودکار قیمت‌ها (طلا، دلار، بیت‌کوین) ----------
+# ---------- دریافت خودکار قیمت‌ها (با خطاگیری بهتر) ----------
 def get_navasan_price(item):
     try:
         url = f"https://api.navasan.tech/latest/?api_key=free&item={item}"
@@ -25,22 +25,34 @@ def get_navasan_price(item):
     except:
         return None
 
-def get_bitcoin_price():
+def get_bitcoin_price(dollar_price):
     try:
-        dollar = get_navasan_price("usd") or 190000
+        if dollar_price is None:
+            return None
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
         r = requests.get(url, timeout=5)
         data = r.json()
-        return float(data["bitcoin"]["usd"]) * dollar
+        return float(data["bitcoin"]["usd"]) * dollar_price
     except:
         return None
 
 # ---------- بارگذاری و ذخیره قیمت‌ها ----------
 def load_prices():
+    default_prices = {
+        "دلار": 190000,
+        "طلا ۱۸": 19800000,
+        "بیت‌کوین": 4200000000,
+        "نقد": 1
+    }
     if os.path.exists(PRICES_FILE):
         with open(PRICES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+            saved = json.load(f)
+            # ترکیب قیمت‌های ذخیره‌شده با پیش‌فرض (برای مواردی که در فایل نیستند)
+            for key, value in default_prices.items():
+                if key not in saved:
+                    saved[key] = value
+            return saved
+    return default_prices
 
 def save_prices(prices):
     with open(PRICES_FILE, "w", encoding="utf-8") as f:
@@ -73,39 +85,51 @@ data = load_data()
 assets = data["assets"]
 prices = load_prices()
 
-# ========== دریافت قیمت‌های خودکار ==========
-auto_prices = {}
-auto_prices["دلار"] = get_navasan_price("usd")
-auto_prices["طلا ۱۸"] = get_navasan_price("18ayar")
-auto_prices["بیت‌کوین"] = get_bitcoin_price()
+# ---------- دریافت قیمت‌های خودکار (با نگهداری قیمت قبلی در صورت خطا) ----------
+auto_dollar = get_navasan_price("usd")
+if auto_dollar is not None:
+    prices["دلار"] = auto_dollar
 
-# به‌روزرسانی قیمت‌های خودکار در دیکشنری prices (اگر دریافت شد)
-for name, price in auto_prices.items():
-    if price is not None:
-        prices[name] = price
+auto_gold = get_navasan_price("18ayar")
+if auto_gold is not None:
+    prices["طلا ۱۸"] = auto_gold
+
+auto_btc = get_bitcoin_price(auto_dollar if auto_dollar else prices.get("دلار", 190000))
+if auto_btc is not None:
+    prices["بیت‌کوین"] = auto_btc
 
 # ========== منوی کناری ==========
 with st.sidebar:
     st.header("⚙️ مدیریت سبد")
     
-    # ---------- بخش ورود قیمت روزانه (دستی) ----------
+    # ---------- بخش ورود قیمت روزانه ----------
     st.subheader("📝 ورود قیمت‌های روزانه")
     st.caption("قیمت سهام را خودتان وارد کنید. قیمت طلا/دلار/بیت‌کوین خودکار است.")
     
     new_prices = {}
     for asset in assets:
         name = asset["name"]
-        # اگر قیمت خودکار دارد، نمایش بده و اجازه ویرایش نده
-        if name in auto_prices and auto_prices[name] is not None:
-            st.info(f"✅ {name}: {auto_prices[name]:,.0f} تومان (خودکار)")
-            new_prices[name] = auto_prices[name]
+        current = prices.get(name, 0)
+        
+        # نمایش وضعیت دریافت خودکار
+        if name == "دلار":
+            st.info(f"🟢 دلار: {prices.get('دلار', 0):,.0f} تومان (خودکار)")
+            new_prices[name] = prices.get('دلار', 0)
+        elif name == "طلا ۱۸":
+            st.info(f"🟢 طلا ۱۸: {prices.get('طلا ۱۸', 0):,.0f} تومان (خودکار)")
+            new_prices[name] = prices.get('طلا ۱۸', 0)
+        elif name == "بیت‌کوین":
+            st.info(f"🟢 بیت‌کوین: {prices.get('بیت‌کوین', 0):,.0f} تومان (خودکار)")
+            new_prices[name] = prices.get('بیت‌کوین', 0)
+        elif name == "نقد":
+            new_prices[name] = 1  # نقد همیشه ۱ است
+            st.info("🟣 نقد: ۱ تومان (ثابت)")
         else:
-            current = prices.get(name, 0)
             new_price = st.number_input(
                 f"{name} (هر {asset['unit']})",
                 min_value=0,
                 value=current,
-                step=100 if name != "بیت‌کوین" else 1000000,
+                step=100,
                 key=f"price_{name}"
             )
             new_prices[name] = new_price
@@ -117,8 +141,8 @@ with st.sidebar:
     
     st.divider()
     
-    # ---------- ویرایش قیمت خرید و تعداد ----------
-    st.subheader("✏️ ویرایش دارایی (تعداد و قیمت خرید)")
+    # ---------- ویرایش تعداد و قیمت خرید ----------
+    st.subheader("✏️ ویرایش دارایی")
     if len(assets) > 0:
         selected_name = st.selectbox("انتخاب دارایی", [a["name"] for a in assets])
         selected = next(a for a in assets if a["name"] == selected_name)
@@ -212,7 +236,6 @@ st.dataframe(
     height=350
 )
 
-# نمودار ترکیب سبد
 st.subheader("🎯 ترکیب سبد")
 df_chart = df[df["ارزش_تومان"] > 0].copy()
 if len(df_chart) > 0:
