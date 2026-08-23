@@ -12,6 +12,31 @@ st.title("📊 سبد مادر (خودکار + دستی + میانگین خری�
 DATA_FILE = "portfolio_data.json"
 PRICES_FILE = "prices.json"
 
+# ---------- لیست سهام‌های نهایی (ادغام از ۴ پرتفوی) ----------
+NEW_STOCKS = [
+    {"name": "سمگا", "count": 32071, "unit": "سهم", "buy_price": 383.5},
+    {"name": "فروی‌ح", "count": 100000, "unit": "سهم", "buy_price": 84.1},
+    {"name": "آبادا", "count": 8135, "unit": "سهم", "buy_price": 1182.8},
+    {"name": "اوند", "count": 2000, "unit": "سهم", "buy_price": 4421.6},
+    {"name": "وصنعت", "count": 30000, "unit": "سهم", "buy_price": 116.1},
+    {"name": "ولیز", "count": 9367, "unit": "سهم", "buy_price": 470.4},
+    {"name": "هانیکو", "count": 2489, "unit": "سهم", "buy_price": 906.4},
+    {"name": "نقران", "count": 36049, "unit": "سهم", "buy_price": 1320.4},
+    {"name": "فنفت", "count": 37190, "unit": "سهم", "buy_price": 436.6},
+    {"name": "خشکست", "count": 122234, "unit": "سهم", "buy_price": 141.4},
+    {"name": "فروخت", "count": 119946, "unit": "سهم", "buy_price": 75.7},
+    {"name": "مروگان", "count": 4098, "unit": "سهم", "buy_price": 947.2},
+    {"name": "اطلس", "count": 3346, "unit": "سهم", "buy_price": 14263.6},
+    {"name": "عیار", "count": 2289, "unit": "سهم", "buy_price": 24705.7},
+    {"name": "اروند", "count": 3089, "unit": "سهم", "buy_price": 4624.4},
+    {"name": "آکو", "count": 915, "unit": "سهم", "buy_price": 3344},
+    {"name": "خزاعیا", "count": 60601, "unit": "سهم", "buy_price": 76.7},
+    {"name": "اخابر", "count": 285000, "unit": "سهم", "buy_price": 61.8},
+    {"name": "غریجی", "count": 31209, "unit": "سهم", "buy_price": 180.2},
+    {"name": "اممر", "count": 2000, "unit": "سهم", "buy_price": 5193.6},
+    {"name": "فارماکیان", "count": 4000, "unit": "سهم", "buy_price": 1005.8}
+]
+
 # ---------- دریافت خودکار قیمت‌ها ----------
 def get_navasan_price(item):
     try:
@@ -59,21 +84,24 @@ def save_prices(prices):
 
 # ---------- بارگذاری و ذخیره داده سبد ----------
 def load_data():
+    default_assets = [
+        {"name": "طلا ۱۸", "count": 45, "unit": "گرم", "buy_price": 0},
+        {"name": "دلار", "count": 1800, "unit": "دلار", "buy_price": 0},
+        {"name": "بیت‌کوین", "count": 0.007025, "unit": "BTC", "buy_price": 0},
+        {"name": "نقد", "count": 500000000, "unit": "تومان", "buy_price": 1}
+    ]
+    default_assets.extend(NEW_STOCKS)
+    
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            saved = json.load(f)
+            existing_names = [a["name"] for a in saved["assets"]]
+            for stock in NEW_STOCKS:
+                if stock["name"] not in existing_names:
+                    saved["assets"].append(stock)
+            return saved
     else:
-        return {
-            "assets": [
-                {"name": "اخابر", "count": 285000, "unit": "سهم", "buy_price": 0},
-                {"name": "اهرم", "count": 3000, "unit": "سهم", "buy_price": 0},
-                {"name": "فارماکیان", "count": 1500, "unit": "سهم", "buy_price": 0},
-                {"name": "طلا ۱۸", "count": 45, "unit": "گرم", "buy_price": 0},
-                {"name": "دلار", "count": 1800, "unit": "دلار", "buy_price": 0},
-                {"name": "بیت‌کوین", "count": 0.007025, "unit": "BTC", "buy_price": 0},
-                {"name": "نقد", "count": 500000000, "unit": "تومان", "buy_price": 1}
-            ]
-        }
+        return {"assets": default_assets}
 
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -101,13 +129,11 @@ if auto_btc is not None:
 with st.sidebar:
     st.header("⚙️ مدیریت سبد")
     
-    # ---------- بخش ورود قیمت‌ها (دستی + خودکار) ----------
+    # ---------- بخش ۱: ورود قیمت‌های روزانه ----------
     st.subheader("📝 قیمت‌های روزانه")
     st.caption("قیمت‌ها را می‌توانید دستی وارد کنید (اگر خودکار نیامد).")
     
     new_prices = {}
-    
-    # لیست دارایی‌هایی که کاربر می‌تواند قیمتشان را وارد کند (همه به جز نقد)
     for asset in assets:
         name = asset["name"]
         if name == "نقد":
@@ -115,13 +141,9 @@ with st.sidebar:
             continue
         
         current = prices.get(name, 0)
-        
-        # نمایش قیمت خودکار اگر موجود باشد
         if name in ["دلار", "طلا ۱۸", "بیت‌کوین"]:
-            auto_price = prices.get(name, 0)
-            st.info(f"🟢 {name}: {auto_price:,.0f} تومان (خودکار - در صورت نیاز ویرایش کنید)")
+            st.info(f"🟢 {name}: {current:,.0f} تومان (خودکار - در صورت نیاز ویرایش کنید)")
         
-        # ورودی دستی (برای همه دارایی‌ها به جز نقد)
         new_price = st.number_input(
             f"{name} (هر {asset['unit']})",
             min_value=0,
@@ -138,34 +160,43 @@ with st.sidebar:
     
     st.divider()
     
-    # ---------- ویرایش دارایی (با محاسبه میانگین خرید) ----------
-    st.subheader("✏️ ویرایش دارایی (تعداد و قیمت خرید)")
+    # ---------- بخش ۲: ویرایش دارایی (نام، تعداد، قیمت خرید) ----------
+    st.subheader("✏️ ویرایش دارایی")
+    
     if len(assets) > 0:
-        selected_name = st.selectbox("انتخاب دارایی", [a["name"] for a in assets])
+        selected_name = st.selectbox("انتخاب دارایی برای ویرایش", [a["name"] for a in assets])
         selected = next(a for a in assets if a["name"] == selected_name)
         
-        st.caption(f"قیمت میانگین خرید فعلی: {selected['buy_price']:,.0f} تومان")
+        # تغییر نام
+        new_name = st.text_input(
+            "نام جدید (در صورت تغییر)",
+            value=selected["name"],
+            key=f"edit_name_{selected_name}"
+        )
         
+        # تغییر تعداد
         new_count = st.number_input(
             "تعداد جدید",
             min_value=0.0,
             step=0.01,
-            value=float(selected["count"])
+            value=float(selected["count"]),
+            key=f"edit_count_{selected_name}"
         )
         
+        # تغییر قیمت خرید (با محاسبه میانگین وزنی)
         new_buy_price = st.number_input(
-            "قیمت خرید جدید (برای این تعداد)",
+            "قیمت خرید جدید (برای هر واحد - در صورت اضافه کردن)",
             min_value=0,
             value=0,
             step=1000,
-            help="قیمتی که به‌ازای هر واحد برای این تعداد جدید پرداخت کرده‌اید"
+            key=f"edit_buy_{selected_name}",
+            help="اگر تعداد جدید اضافه می‌کنید، قیمت خرید جدید را وارد کنید تا میانگین محاسبه شود."
         )
         
-        # محاسبه قیمت میانگین خرید وزنی
+        # محاسبه میانگین وزنی
         if new_buy_price > 0 and new_count > 0:
             old_count = selected["count"]
             old_buy = selected["buy_price"]
-            # اگر تعداد قبلی صفر است، میانگین همان قیمت جدید است
             if old_count == 0:
                 avg_buy = new_buy_price
             else:
@@ -174,24 +205,42 @@ with st.sidebar:
         else:
             avg_buy = selected["buy_price"]
         
-        if st.button("💾 ذخیره تغییرات"):
+        # دکمه ذخیره
+        if st.button("💾 ذخیره تغییرات", key=f"save_edit_{selected_name}"):
+            # بررسی تکراری نبودن نام جدید
+            name_changed = (new_name != selected["name"])
+            if name_changed:
+                existing_names = [a["name"] for a in assets if a["name"] != selected["name"]]
+                if new_name in existing_names:
+                    st.error(f"❌ نام '{new_name}' قبلاً در سبد وجود دارد. لطفاً نام دیگری انتخاب کنید.")
+                    st.stop()
+            
+            # اعمال تغییرات
             for a in assets:
-                if a["name"] == selected_name:
+                if a["name"] == selected["name"]:
+                    if name_changed:
+                        old_price = prices.pop(selected["name"], 0)
+                        if old_price:
+                            prices[new_name] = old_price
+                        a["name"] = new_name
+                    
                     a["count"] = new_count
-                    # اگر قیمت خرید جدید وارد شده، میانگین را به‌روز کن
                     if new_buy_price > 0 and new_count > 0:
                         a["buy_price"] = avg_buy
-                    # اگر تعداد صفر شد، قیمت خرید را صفر کن
                     if new_count == 0:
                         a["buy_price"] = 0
                     break
+            
             save_data(data)
-            st.success("✅ به‌روز شد!")
+            save_prices(prices)
+            st.success("✅ تغییرات ذخیره شد!")
             st.rerun()
+        
+        st.caption(f"💰 قیمت خرید فعلی: {selected['buy_price']:,.0f} تومان")
     
     st.divider()
     
-    # ---------- اضافه کردن دارایی جدید ----------
+    # ---------- بخش ۳: اضافه کردن دارایی جدید ----------
     st.subheader("➕ اضافه کردن دارایی جدید")
     new_name = st.text_input("نام دارایی")
     new_count = st.number_input("تعداد", min_value=0.0, step=0.01, value=1.0)
@@ -214,7 +263,7 @@ with st.sidebar:
     
     st.divider()
     
-    # ---------- حذف دارایی ----------
+    # ---------- بخش ۴: حذف دارایی ----------
     st.subheader("🗑️ حذف دارایی")
     if len(assets) > 0:
         delete_name = st.selectbox("انتخاب دارایی برای حذف", [a["name"] for a in assets])
@@ -264,7 +313,7 @@ st.dataframe(
         "درصد": st.column_config.NumberColumn(format="%.2f%%")
     },
     use_container_width=True,
-    height=350
+    height=500
 )
 
 st.subheader("🎯 ترکیب سبد")
